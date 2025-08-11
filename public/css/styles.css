@@ -7,7 +7,9 @@
 
 body {
     font-family: 'Arial', sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: url('../assets/dart-background.png');
+    background-size: contain; 
+    background-position: center center; 
     color: #333;
     overflow: hidden;
     height: 100vh;
@@ -44,9 +46,6 @@ body {
 .game-title {
     font-size: 4rem;
     font-weight: bold;
-    background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
     background-clip: text;
     margin-bottom: 0.5rem;
     text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
@@ -77,12 +76,12 @@ body {
 }
 
 .menu-btn.primary {
-    background: linear-gradient(45deg, #ff6b6b, #ee5a6f);
+    background: #ff6b6b; 
     color: white;
 }
 
 .menu-btn.primary:hover {
-    background: linear-gradient(45deg, #ee5a6f, #ff6b6b);
+    background: #ff6b6b; 
     transform: translateY(-2px);
     box-shadow: 0 10px 20px rgba(238, 90, 111, 0.3);
 }
