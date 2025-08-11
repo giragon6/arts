@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ARTS - 3D Color Mixing Darts</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+</head>
+<body>
+    <!-- Main Menu Screen -->
+    <div id="main-menu" class="screen active">
+        <div class="menu-container">
+            <h1 class="game-title">ARTS</h1>
+            <p class="game-subtitle">3D Color Mixing Darts</p>
+            
+            <div class="menu-buttons">
+                <button id="create-room-btn" class="menu-btn primary">Create Room</button>
+                <button id="join-room-btn" class="menu-btn">Join Room</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Join Room Screen -->
+    <div id="join-room" class="screen">
+        <div class="menu-container">
+            <h2>Join Room</h2>
+            
+            <form id="join-form">
+                <div class="input-group">
+                    <label for="player-name">Your Name</label>
+                    <input type="text" id="player-name" maxlength="20" required>
+                </div>
+                
+                <div class="input-group">
+                    <label for="room-code">Room Code (Optional)</label>
+                    <input type="text" id="room-code" maxlength="4" placeholder="Leave empty to find room">
+                </div>
+                
+                <div class="button-group">
+                    <button type="submit" class="menu-btn primary">Join Game</button>
+                    <button type="button" id="back-to-menu" class="menu-btn">Back</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Lobby Screen -->
+    <div id="lobby" class="screen">
+        <div class="lobby-container">
+            <div class="lobby-header">
+                <h2>Room: <span id="current-room-code"></span></h2>
+                <button id="leave-room" class="menu-btn small">Leave</button>
+            </div>
+
+            <div class="lobby-content">
+                <div class="players-section">
+                    <h3>Players (<span id="player-count">0</span>/4)</h3>
+                    <div id="players-list"></div>
+                </div>
+
+                <div class="target-color-section">
+                    <h3>Target Color</h3>
+                    <div id="target-color-display" class="color-display">
+                        <div class="color-swatch" id="target-color-swatch"></div>
+                        <div class="color-info">
+                            <div id="target-color-rgb">RGB: ---, ---, ---</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="game-settings" id="host-settings">
+                    <h3>Game Settings</h3>
+                    <div class="settings-grid">
+                        <div class="setting">
+                            <label for="color-tolerance">Color Tolerance:</label>
+                            <input type="range" id="color-tolerance" min="10" max="50" value="30">
+                            <span id="tolerance-value">30</span>
+                        </div>
+                        
+                        <div class="setting">
+                            <label for="dart-speed">Dart Speed:</label>
+                            <input type="range" id="dart-speed" min="30" max="70" value="50">
+                            <span id="speed-value">50</span>
+                        </div>
+                        
+                        <div class="setting">
+                            <label for="difficulty">Difficulty:</label>
+                            <select id="difficulty">
+                                <option value="easy">Easy</option>
+                                <option value="medium" selected>Medium</option>
+                                <option value="hard">Hard</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lobby-actions">
+                <button id="start-game" class="menu-btn primary large" disabled>Start Game</button>
+                <p class="start-game-info">Need at least 2 players to start</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="game" class="screen">
+        <div class="game-ui">
+            <div class="game-header">
+                <div class="room-info">
+                    <span>Room: <span id="game-room-code"></span></span>
+                </div>
+                <div class="target-color-mini">
+                    <span>Target:</span>
+                    <div class="color-swatch-mini" id="game-target-color"></div>
+                </div>
+            </div>
+
+            <div class="game-sidebar">
+                <div class="current-turn">
+                    <h3>Current Turn</h3>
+                    <div id="current-player-info">
+                        <div class="player-name" id="current-player-name">Player</div>
+                        <div class="player-color">
+                            <div class="color-swatch" id="current-player-color"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="players-colors">
+                    <h3>All Players</h3>
+                    <div id="game-players-list"></div>
+                </div>
+
+                <div class="throw-controls" id="throw-controls">
+                    <h3>Throw Dart</h3>
+                    <div class="power-control">
+                        <label for="throw-power">Power:</label>
+                        <input type="range" id="throw-power" min="0.3" max="1.0" step="0.1" value="0.8">
+                        <span id="power-value">80%</span>
+                    </div>
+                    <button id="throw-dart" class="menu-btn primary">Throw Dart</button>
+                </div>
+
+                <div class="game-actions">
+                    <button id="leave-game" class="menu-btn small">Leave Game</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="game-canvas">
+            <canvas id="three-canvas" width="500" height="500"></canvas>
+            <div class="canvas-overlay">
+                <div class="crosshair" id="crosshair"></div>
+                <div class="throwing-indicator" id="throwing-indicator">
+                    <div class="spinner"></div>
+                    <span>Throwing dart...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="game-over" class="screen">
+        <div class="menu-container">
+            <h2>Game Over!</h2>
+            
+            <div class="winner-section">
+                <div class="winner-info">
+                    <h3 id="winner-name">Player Won!</h3>
+                    <div class="final-colors">
+                        <div class="color-comparison">
+                            <div class="color-item">
+                                <span>Target Color</span>
+                                <div class="color-swatch" id="final-target-color"></div>
+                            </div>
+                            <div class="color-item">
+                                <span>Winner's Color</span>
+                                <div class="color-swatch" id="final-winner-color"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button id="play-again" class="menu-btn primary">Play Again</button>
+                <button id="back-to-main" class="menu-btn">Main Menu</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Screen -->
+    <div id="loading" class="screen">
+        <div class="loading-container">
+            <div class="spinner large"></div>
+            <p id="loading-text">Connecting...</p>
+        </div>
+    </div>
+
+    <!-- Error Messages -->
+    <div id="error-popup" class="popup">
+        <div class="popup-content">
+            <h3>Error</h3>
+            <p id="error-message"></p>
+            <button id="close-error" class="menu-btn">OK</button>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/utils.js"></script>
+    <script src="js/colorUtils.js"></script>
+    <script src="js/gameRenderer.js"></script>
+    <script src="js/dartPhysics.js"></script>
+    <script src="js/socketManager.js"></script>
+    <script src="js/gameManager.js"></script>
+    <script src="js/uiManager.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
