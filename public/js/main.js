@@ -10,6 +10,8 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('ARTS Game starting...');
     
     try {
+        // Apply random colors to UI elements first
+        randomizeUIBackgrounds();
         initializeGame();
     } catch (error) {
         console.error('Failed to initialize game:', error);
@@ -18,11 +20,56 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /**
+ * Randomize background colors of UI elements (excluding canvas)
+ */
+function randomizeUIBackgrounds() {
+    // Define selectors for UI containers that should get random backgrounds
+    const uiSelectors = [
+        '.menu-container',
+        '.lobby-container', 
+        '.players-section',
+        '.game-settings',
+        '.target-color-section',
+        '.game-ui',
+        '.game-header',
+        '.current-turn',
+        '.players-colors',
+        '.popup-content'
+    ];
+    
+    uiSelectors.forEach(selector => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(element => {
+            // Generate a vibrant random color
+            const color = generateVibrantColor();
+            const rgba = `rgba(${color.r}, ${color.g}, ${color.b}, 0.95)`;
+            element.style.backgroundColor = rgba;
+        });
+    });
+    
+    console.log('UI backgrounds randomized');
+}
+
+/**
+ * Generate a vibrant random color
+ */
+function generateVibrantColor() {
+    const hue = Math.floor(Math.random() * 360);
+    const saturation = 70 + Math.random() * 30; // 70-100% saturation for vibrancy
+    const lightness = 40 + Math.random() * 30;  // 40-70% lightness for good contrast
+    
+    return hslToRgb(hue, saturation, lightness);
+}
+
+/**
  * Initialize the main game systems
  */
 function initializeGame() {
     // Create game manager
     game = new GameManager();
+    
+    // Expose to global scope for gameRenderer access
+    window.gameManager = game;
     
     // Create UI manager and connect it to game manager
     const uiManager = new UIManager(game);
@@ -176,7 +223,6 @@ function showCriticalError(message) {
         align-items: center;
         justify-content: center;
         z-index: 10000;
-        font-family: Arial, sans-serif;
     `;
     
     errorDiv.innerHTML = `

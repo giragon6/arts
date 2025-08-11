@@ -47,7 +47,6 @@ class UIManager {
             currentPlayerName: document.getElementById('current-player-name'),
             currentPlayerColor: document.getElementById('current-player-color'),
             gamePlayersList: document.getElementById('game-players-list'),
-            throwControls: document.getElementById('throw-controls'),
             throwPower: document.getElementById('throw-power'),
             powerValue: document.getElementById('power-value'),
             throwDartBtn: document.getElementById('throw-dart'),
@@ -152,14 +151,6 @@ class UIManager {
             this.hideError();
         });
 
-        // Canvas click for dart throwing
-        const canvas = document.getElementById('three-canvas');
-        if (canvas) {
-            canvas.addEventListener('click', (e) => {
-                this.handleCanvasClick(e);
-            });
-        }
-
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             this.handleKeyPress(e);
@@ -197,9 +188,15 @@ class UIManager {
     }
 
     handleJoinFormSubmit() {
-        const playerName = this.elements.playerNameInput.value.trim();
+        let playerName = this.elements.playerNameInput.value.trim();
         const roomCode = this.elements.roomCodeInput.value.trim().toUpperCase();
         const isCreating = this.elements.roomCodeInput.style.display === 'none';
+
+        // Generate random name if no name provided
+        if (!playerName) {
+            playerName = generateRandomPlayerName();
+            this.elements.playerNameInput.value = playerName; // Show the generated name in the input
+        }
 
         if (!isValidPlayerName(playerName)) {
             this.showError('Please enter a valid name (1-20 characters)');
@@ -235,12 +232,11 @@ class UIManager {
         // Update start game button
         this.updateStartGameButton(room.players.length, player.isHost);
         
-        // Generate and show target color
-        if (!room.targetColor) {
-            const targetColor = generateRandomColor();
-            this.updateTargetColor(targetColor);
-        } else {
+        // Show target color (should always exist from server)
+        if (room.targetColor) {
             this.updateTargetColor(room.targetColor);
+        } else {
+            console.warn('No target color received from server');
         }
     }
 
@@ -318,9 +314,6 @@ class UIManager {
         
         // Update players list
         this.updateGamePlayersList(gameState.players, gameState.playerColors);
-        
-        // Show/hide throw controls
-        this.updateThrowControls(gameState.currentTurn);
     }
 
     updateCurrentTurn(currentTurnId) {
@@ -360,18 +353,6 @@ class UIManager {
         });
     }
 
-    updateThrowControls(currentTurnId) {
-        const isMyTurn = currentTurnId === this.gameManager.socketManager.getSocketId();
-        
-        if (this.elements.throwControls) {
-            this.elements.throwControls.style.display = isMyTurn ? 'block' : 'none';
-        }
-        
-        if (this.elements.crosshair) {
-            this.elements.crosshair.style.display = isMyTurn ? 'block' : 'none';
-        }
-    }
-
     updatePlayerColors(playerColors) {
         this.updateGamePlayersList(this.gameManager.gameState.players, playerColors);
         
@@ -382,55 +363,26 @@ class UIManager {
         }
     }
 
-    handleThrowDart() {
-        // Get center of canvas as target (player aims with mouse)
-        const canvas = document.getElementById('three-canvas');
-        if (!canvas) return;
-        
-        // const rect = canvas.getBoundingClientRect();
-        // const centerX = rect.width / 2;
-        // const centerY = rect.height / 2;
-        
-        const targetPosition = {
-            x: 0,
-            y: 0,
-            z: 0
-        };
-        
-        const power = parseFloat(this.elements.throwPower.value);
-        this.gameManager.throwDart(targetPosition, power);
-    }
-
-    handleCanvasClick(event) {
-        if (!this.gameManager.canThrow()) return;
-        
-        const canvas = event.target;
-        const rect = canvas.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-        
-        // Convert screen coordinates to world coordinates (simplified)
-        const worldX = (x / rect.width - 0.5) * 6; // Scale to dartboard size
-        const worldY = -(y / rect.height - 0.5) * 6; // Flip Y axis
-        
-        const targetPosition = { x: worldX, y: worldY, z: 0 };
-        const power = parseFloat(this.elements.throwPower.value);
-        
-        this.gameManager.throwDart(targetPosition, power);
-    }
-
     showThrowingIndicator(show) {
         if (this.elements.throwingIndicator) {
             this.elements.throwingIndicator.classList.toggle('active', show);
         }
     }
 
-    showThrowResult(playerId, newColor, throwData) {
+    showThrowResult(playerId, newColor, throwData, colorChanged) {
         const player = this.gameManager.getPlayerById(playerId);
         if (player) {
-            this.showNotification(
-                `${player.name} hit ${rgbToHex(throwData.hitColor)} and mixed to ${rgbToHex(newColor)}!`
-            );
+            if (!throwData.hitBoard || throwData.hitColor === null || !colorChanged) {
+                // Dart missed the dartboard or didn't change color
+                this.showNotification(
+                    `${player.name} missed the dartboard! No color change.`
+                );
+            } else {
+                // Dart hit the dartboard and changed color
+                this.showNotification(
+                    `${player.name} hit ${rgbToHex(throwData.hitColor)} and mixed to ${rgbToHex(newColor)}!`
+                );
+            }
         }
     }
 

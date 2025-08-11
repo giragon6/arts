@@ -180,6 +180,58 @@ class GameManager {
                 timestamp: Date.now()
             };
 
+            console.log('Client sending throw data - hitColor:', throwResult.hitColor);
+            this.socketManager.throwDart(this.gameState.currentRoom.roomCode, throwData);
+
+        } catch (error) {
+            console.error('Error throwing dart:', error);
+            this.showError('Failed to throw dart. Please try again.');
+            this.isThrowInProgress = false;
+        } finally {
+            if (this.uiManager) {
+                this.uiManager.showThrowingIndicator(false);
+            }
+        }
+    }
+
+    async throwDartWithPhysics(throwParams) {
+        if (this.isThrowInProgress) {
+            return;
+        }
+
+        if (!this.canThrow()) {
+            this.showError('It\'s not your turn or game is not active');
+            return;
+        }
+
+        this.isThrowInProgress = true;
+        try {
+            // Get player accuracy based on difficulty
+            const difficulty = this.gameState.gameSettings.difficulty;
+            const difficultySettings = this.dartPhysics.getDifficultySettings(difficulty);
+
+            // Show throwing animation
+            if (this.uiManager) {
+                this.uiManager.showThrowingIndicator(true);
+            }
+
+            // Calculate and animate physics-based dart throw
+            const throwResult = await this.gameRenderer.throwDartWithPhysics(
+                throwParams, 
+                this.socketManager.getSocketId()
+            );
+
+            // Send throw data to server
+            const throwData = {
+                hitPosition: throwResult.hitPosition,
+                hitColor: throwResult.hitColor,
+                sectorInfo: throwResult.sectorInfo,
+                trajectory: throwResult.trajectory,
+                throwParams: throwResult.throwParams,
+                timestamp: Date.now()
+            };
+
+            console.log('Client sending throw data - hitColor:', throwResult.hitColor);
             this.socketManager.throwDart(this.gameState.currentRoom.roomCode, throwData);
 
         } catch (error) {
@@ -250,41 +302,53 @@ class GameManager {
         this.gameState.currentTurn = data.gameState.currentTurn;
         this.gameState.playerColors = data.gameState.playerColors;
 
-        // Initialize 3D renderer if not already done
-        if (!this.gameRenderer) {
-            const canvas = document.getElementById('three-canvas');
-            if (game.gameRenderer) {
-              game.gameRenderer.onWindowResize();
-            }
-            if (canvas) {
-                console.log('Canvas found, creating GameRenderer');
-                this.gameRenderer = new GameRenderer(canvas);
-            } else {
-                console.error('Canvas not found! ID: three-canvas');
-            }
-        }
-
-        if (this.gameRenderer) {
-            this.gameRenderer.setTargetColor(data.targetColor);
-            this.gameRenderer.clearDarts();
-        }
-
         if (this.uiManager) {
             this.uiManager.showGame(data.gameState, data.targetColor);
         }
+
+        // Initialize 3D renderer after UI is shown and canvas is visible
+        setTimeout(async () => {
+            if (!this.gameRenderer) {
+                const canvas = document.getElementById('three-canvas');
+                if (canvas) {
+                    console.log('Canvas found, creating GameRenderer');
+                    this.gameRenderer = new GameRenderer(canvas);
+                    
+                    try {
+                        await this.gameRenderer.initializeWhenReady();
+                        console.log('GameRenderer initialized successfully');
+                        
+                        if (this.gameRenderer) {
+                            this.gameRenderer.setTargetColor(data.targetColor);
+                            this.gameRenderer.clearDarts();
+                        }
+                    } catch (error) {
+                        console.error('Failed to initialize GameRenderer:', error);
+                    }
+                } else {
+                    console.error('Canvas not found! ID: three-canvas');
+                }
+            } else {
+                this.gameRenderer.setTargetColor(data.targetColor);
+                this.gameRenderer.clearDarts();
+            }
+        }, 100); // Wait 100ms for UI transition to complete
     }
 
     handleDartThrown(data) {
-        const { playerId, throwData, newColor, gameState } = data;
+        const { playerId, throwData, newColor, colorChanged, gameState } = data;
+        
         // Update game state
         this.gameState.playerColors = gameState.playerColors;
         this.gameState.currentTurn = gameState.currentTurn;
+        
         // Update UI
         if (this.uiManager) {
             this.uiManager.updatePlayerColors(gameState.playerColors);
             this.uiManager.updateCurrentTurn(gameState.currentTurn);
-            this.uiManager.showThrowResult(playerId, newColor, throwData);
+            this.uiManager.showThrowResult(playerId, newColor, throwData, colorChanged);
         }
+        
         // Reset throw state if it was our throw
         if (this.gameState.player && playerId === this.gameState.player.id) {
             this.isThrowInProgress = false;

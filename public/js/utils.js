@@ -48,6 +48,15 @@ function isValidPlayerName(name) {
 }
 
 /**
+ * Generate a random player name
+ * @returns {string} Random player name like "Player385"
+ */
+function generateRandomPlayerName() {
+    const randomNumber = Math.floor(Math.random() * 1000) + 1;
+    return `Player${randomNumber}`;
+}
+
+/**
  * Debounce function calls
  * @param {Function} func - Function to debounce
  * @param {number} wait - Wait time in milliseconds

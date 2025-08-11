@@ -1,4 +1,4 @@
-const { mixColors, calculateColorDistance } = require('./colorUtils');
+const { mixColors, calculateColorDistance, generateRandomColor } = require('./colorUtils');
 const { v4: uuidv4 } = require('uuid');
 
 class Room {
@@ -7,7 +7,7 @@ class Room {
         this.hostId = hostId;
         this.players = new Map();
         this.gameState = 'waiting'; // waiting, playing, finished
-        this.targetColor = null;
+        this.targetColor = generateRandomColor(); // Generate target color when room is created
         this.playerColors = new Map(); // Current color for each player
         this.currentTurn = 0;
         this.turnOrder = [];
@@ -30,7 +30,7 @@ class Room {
             isHost: playerId === this.hostId,
             isReady: false,
             throwCount: 0,
-            currentColor: { r: 128, g: 128, b: 128 }, // Start with neutral gray
+            currentColor: { r: 0, g: 0, b: 0 }, // Start with white
             score: 0
         };
 
@@ -82,15 +82,29 @@ class Room {
             throw new Error('Player not found');
         }
 
-        // Extract color from hit position on color wheel
-        const hitColor = this.calculateHitColor(throwData.hitPosition);
+        // Use client-provided hit color - null means miss, undefined means not provided
+        let hitColor = throwData.hitColor;
+        if (hitColor === undefined) {
+            // Only calculate if client didn't provide hitColor at all
+            hitColor = this.calculateHitColor(throwData.hitPosition);
+        }
         
-        // Mix with player's current color
-        const currentColor = this.playerColors.get(playerId);
-        const newColor = mixColors(currentColor, hitColor, 0.3); // 30% weight to new color
+        console.log('Server processDartThrow - hitColor:', hitColor);
         
-        this.playerColors.set(playerId, newColor);
-        player.currentColor = newColor;
+        let newColor = this.playerColors.get(playerId);
+        let colorChanged = false;
+        
+        // Only mix colors if dart actually hit the dartboard
+        if (hitColor !== null) {
+            // Mix with player's current color
+            const currentColor = this.playerColors.get(playerId);
+            newColor = mixColors(currentColor, hitColor, 0.3); // 30% weight to new color
+            
+            this.playerColors.set(playerId, newColor);
+            player.currentColor = newColor;
+            colorChanged = true;
+        }
+        
         player.throwCount++;
 
         // Record the throw
@@ -101,27 +115,33 @@ class Room {
             hitPosition: throwData.hitPosition,
             hitColor,
             newColor,
-            trajectory: throwData.trajectory
+            trajectory: throwData.trajectory,
+            hitBoard: hitColor !== null
         };
         this.throws.push(throwRecord);
 
-        // Check if player won
-        const colorDistance = calculateColorDistance(newColor, this.targetColor);
+        // Check if player won (only if they hit the board and color changed)
         let winner = null;
         let finalColor = null;
 
-        if (colorDistance <= this.gameSettings.colorTolerance) {
-            winner = player;
-            finalColor = newColor;
-            this.gameState = 'finished';
-        } else {
-            // Advance turn
+        if (colorChanged && hitColor !== null) {
+            const colorDistance = calculateColorDistance(newColor, this.targetColor);
+            if (colorDistance <= this.gameSettings.colorTolerance) {
+                winner = player;
+                finalColor = newColor;
+                this.gameState = 'finished';
+            }
+        }
+        
+        // Always advance turn after a throw (whether hit or miss)
+        if (!winner) {
             this.advanceTurn();
         }
 
         return {
             throwData: throwRecord,
-            newColor,
+            newColor: colorChanged ? newColor : null, // Only send newColor if it actually changed
+            colorChanged: colorChanged,
             winner,
             finalColor
         };

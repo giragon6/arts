@@ -8,10 +8,13 @@ class GameRenderer {
         this.camera = null;
         this.renderer = null;
         this.dartboard = null;
+        this.colorSectors = []; // Store sector meshes for hit detection
         this.darts = [];
         this.lights = [];
         this.animationId = null;
         this.isInitialized = false;
+        this.loader = null;
+        this.dartModel = null;
         
         // Camera controls
         this.cameraPosition = { x: 0, y: 2, z: 8 };
@@ -19,7 +22,39 @@ class GameRenderer {
         this.mousePosition = { x: 0, y: 0 };
         this.isMouseDown = false;
         
-        this.init();
+        // Drag-based throwing
+        this.isDragging = false;
+        this.dragStart = { x: 0, y: 0 };
+        this.dragEnd = { x: 0, y: 0 };
+        this.dragVector = null;
+        this.aimingLine = null;
+        this.canThrow = false;
+        
+        // Don't initialize immediately - wait for proper sizing
+    }
+
+    // Public method to initialize when canvas is ready
+    initializeWhenReady() {
+        if (this.isInitialized) {
+            return Promise.resolve();
+        }
+
+        return new Promise((resolve, reject) => {
+            const checkCanvasReady = () => {
+                if (this.canvas && this.canvas.clientWidth > 0 && this.canvas.clientHeight > 0) {
+                    try {
+                        this.init();
+                        resolve();
+                    } catch (error) {
+                        reject(error);
+                    }
+                } else {
+                    console.log('Canvas not ready, retrying... Size:', this.canvas ? `${this.canvas.clientWidth}x${this.canvas.clientHeight}` : 'Canvas is null');
+                    setTimeout(checkCanvasReady, 100);
+                }
+            };
+            checkCanvasReady();
+        });
     }
 
     init() {
@@ -34,7 +69,8 @@ class GameRenderer {
             this.setupCamera();
             this.setupLights();
             this.setupDartboard();
-            this.setupControls();
+            this.loadDartModel(); // Load the dart model asynchronously
+            this.setupDragControls(); // Change to drag controls
             this.startRenderLoop();
             
             this.isInitialized = true;
@@ -44,11 +80,49 @@ class GameRenderer {
         }
     }
 
+    async loadDartModel() {
+        try {
+                this.loader = new THREE.GLTFLoader(); // Ensure GLTFLoader is used from global THREE namespace
+            console.log('Loading dart.glb model...');
+            
+            const gltf = await new Promise((resolve, reject) => {
+                this.loader.load(
+                    './assets/Dart.glb',
+                    resolve,
+                    (progress) => {
+                            if (progress && progress.total) {
+                                console.log('Loading progress:', (progress.loaded / progress.total * 100) + '%');
+                            }
+                    },
+                    reject
+                );
+            });
+
+            this.dartModel = gltf.scene;
+            this.dartModel.scale.set(0.1, 0.1, 0.1); // Scale down the model as needed
+            
+            // Enable shadows on the dart model
+            this.dartModel.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                }
+            });
+
+            console.log('Dart model loaded successfully');
+            this.canThrow = true; // Enable throwing once model is loaded
+        } catch (error) {
+            console.error('Failed to load dart model:', error);
+            console.log('Falling back to geometric dart');
+            this.canThrow = true; // Still allow throwing with geometric dart
+        }
+    }
+
     setupRenderer() {
         this.renderer = new THREE.WebGLRenderer({
             canvas: this.canvas,
             antialias: true,
-            alpha: true
+            alpha: true,
         });
         
         console.log('Renderer created, setting size to:', this.canvas.clientWidth, 'x', this.canvas.clientHeight);
@@ -60,8 +134,8 @@ class GameRenderer {
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
         this.renderer.toneMappingExposure = 1.2;
         
-        // Set clear color to dark space-like background
-        this.renderer.setClearColor(0x0a0a0a, 1);
+        // Set transparent background to show CSS gradient behind
+        this.renderer.setClearColor(0x000000, 0); // Black with 0 alpha (transparent)
         console.log('Renderer setup complete');
     }
 
@@ -71,8 +145,6 @@ class GameRenderer {
         // Add some fog for atmosphere
         this.scene.fog = new THREE.Fog(0x0a0a0a, 10, 50);
         
-        // Add starfield background
-        this.createStarfield();
     }
 
     setupCamera() {
@@ -141,55 +213,47 @@ class GameRenderer {
     }
 
     createColorWheel() {
-        const wheelRadius = 3;
-        const segments = 60;
-        const rings = 20;
+        const radius = 3;
+        const segmentsPerSector = 32;
+        const numberOfSectors = 20;
+        const sectorAngle = (2 * Math.PI) / numberOfSectors;
         
-        for (let ring = 0; ring < rings; ring++) {
-            const innerRadius = (ring / rings) * wheelRadius;
-            const outerRadius = ((ring + 1) / rings) * wheelRadius;
+        // Store sector meshes for hit detection
+        this.colorSectors = [];
+        
+        for (let i = 0; i < numberOfSectors; i++) {
+            const thetaStart = i * sectorAngle;
+            const geometry = new THREE.CircleGeometry(radius, segmentsPerSector, thetaStart, sectorAngle);
             
-            for (let segment = 0; segment < segments; segment++) {
-                const startAngle = (segment / segments) * Math.PI * 2;
-                const endAngle = ((segment + 1) / segments) * Math.PI * 2;
-                
-                // Create ring segment geometry
-                const geometry = new THREE.RingGeometry(
-                    innerRadius, 
-                    outerRadius, 
-                    0, 
-                    Math.PI * 2 / segments
-                );
-                
-                // Calculate color based on position
-                const hue = (segment / segments) * 360;
-                const saturation = Math.min(((ring + 1) / rings), 1) * 100;
-                const lightness = 50;
-                
-                const color = hslToRgb(hue, saturation, lightness);
-                const material = new THREE.MeshLambertMaterial({
-                    color: new THREE.Color(`rgb(${color.r}, ${color.g}, ${color.b})`),
-                    transparent: false
-                });
-                
-                const mesh = new THREE.Mesh(geometry, material);
-                mesh.rotation.z = startAngle;
-                mesh.receiveShadow = true;
-                
-                // Store color data for hit detection
-                mesh.userData = {
-                    color: color,
-                    ring: ring,
-                    segment: segment,
-                    hue: hue,
-                    saturation: saturation
-                };
-                
-                this.dartboard.add(mesh);
-            }
+            // Generate sector color based on position
+            const hue = (i / numberOfSectors) * 360;
+            const color = new THREE.Color().setHSL(hue / 360, 0.8, 0.5);
+            const material = new THREE.MeshBasicMaterial({ color: color, side: THREE.DoubleSide });
+            
+            const sector = new THREE.Mesh(geometry, material);
+            
+            // Store sector data for hit detection
+            sector.userData = {
+                sectorIndex: i,
+                startAngle: thetaStart,
+                endAngle: thetaStart + sectorAngle,
+                color: {
+                    r: Math.round(color.r * 255),
+                    g: Math.round(color.g * 255),
+                    b: Math.round(color.b * 255)
+                },
+                hue: hue,
+                saturation: 0.8,
+                lightness: 0.5,
+                isSector: true
+            };
+            
+            this.colorSectors.push(sector);
+            this.dartboard.add(sector);
         }
         
-        // Add center circle
+        const wheelRadius = 3;
+
         const centerGeometry = new THREE.CircleGeometry(wheelRadius * 0.05, 32);
         const centerMaterial = new THREE.MeshLambertMaterial({ 
             color: 0xffffff,
@@ -197,7 +261,10 @@ class GameRenderer {
         });
         const centerMesh = new THREE.Mesh(centerGeometry, centerMaterial);
         centerMesh.receiveShadow = true;
-        centerMesh.userData = { isCenter: true };
+        centerMesh.userData = { 
+            isCenter: true,
+            color: { r: 255, g: 255, b: 255 }
+        };
         this.dartboard.add(centerMesh);
     }
 
@@ -238,62 +305,62 @@ class GameRenderer {
         }
     }
 
-    createStarfield() {
-        const starGeometry = new THREE.BufferGeometry();
-        const starCount = 1000;
-        const positions = new Float32Array(starCount * 3);
-        
-        for (let i = 0; i < starCount * 3; i += 3) {
-            positions[i] = (Math.random() - 0.5) * 200;     // x
-            positions[i + 1] = (Math.random() - 0.5) * 200; // y  
-            positions[i + 2] = (Math.random() - 0.5) * 200; // z
-        }
-        
-        starGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        
-        const starMaterial = new THREE.PointsMaterial({
-            color: 0xffffff,
-            size: 2,
-            transparent: true,
-            opacity: 0.8
-        });
-        
-        const stars = new THREE.Points(starGeometry, starMaterial);
-        this.scene.add(stars);
-    }
-
     createDart(startPosition, targetPosition, color = 0xff0000) {
-        const dartGroup = new THREE.Group();
+        let dartGroup;
         
-        // Dart tip (cone)
-        const tipGeometry = new THREE.ConeGeometry(0.02, 0.3, 8);
-        const tipMaterial = new THREE.MeshPhongMaterial({ color: 0x888888 });
-        const tip = new THREE.Mesh(tipGeometry, tipMaterial);
-        tip.position.z = 0.15;
-        tip.castShadow = true;
-        dartGroup.add(tip);
-        
-        // Dart shaft (cylinder)
-        const shaftGeometry = new THREE.CylinderGeometry(0.015, 0.015, 0.8, 8);
-        const shaftMaterial = new THREE.MeshPhongMaterial({ color: color });
-        const shaft = new THREE.Mesh(shaftGeometry, shaftMaterial);
-        shaft.rotation.x = Math.PI / 2;
-        shaft.castShadow = true;
-        dartGroup.add(shaft);
-        
-        // Dart fletching (fins)
-        for (let i = 0; i < 3; i++) {
-            const finGeometry = new THREE.PlaneGeometry(0.1, 0.15);
-            const finMaterial = new THREE.MeshLambertMaterial({ 
-                color: color,
-                transparent: true,
-                opacity: 0.8,
-                side: THREE.DoubleSide
+        if (this.dartModel) {
+            // Use GLB model if available
+            dartGroup = this.dartModel.clone();
+            
+            // Apply color tint to the dart model
+            dartGroup.traverse((child) => {
+                if (child.isMesh && child.material) {
+                    // Create a new material with the player's color tint
+                    const material = child.material.clone();
+                    if (material.color) {
+                        material.color.setHex(color);
+                    }
+                    child.material = material;
+                }
             });
-            const fin = new THREE.Mesh(finGeometry, finMaterial);
-            fin.position.z = -0.3;
-            fin.rotation.y = (i / 3) * Math.PI * 2;
-            dartGroup.add(fin);
+            
+            console.log('Using GLB dart model');
+        } else {
+            // Fall back to geometric dart
+            dartGroup = new THREE.Group();
+            
+            // Dart tip (cone)
+            const tipGeometry = new THREE.ConeGeometry(0.02, 0.3, 8);
+            const tipMaterial = new THREE.MeshPhongMaterial({ color: 0x888888 });
+            const tip = new THREE.Mesh(tipGeometry, tipMaterial);
+            tip.position.z = 0.15;
+            tip.castShadow = true;
+            dartGroup.add(tip);
+            
+            // Dart shaft (cylinder)
+            const shaftGeometry = new THREE.CylinderGeometry(0.015, 0.015, 0.8, 8);
+            const shaftMaterial = new THREE.MeshPhongMaterial({ color: color });
+            const shaft = new THREE.Mesh(shaftGeometry, shaftMaterial);
+            shaft.rotation.x = Math.PI / 2;
+            shaft.castShadow = true;
+            dartGroup.add(shaft);
+            
+            // Dart fletching (fins)
+            for (let i = 0; i < 3; i++) {
+                const finGeometry = new THREE.PlaneGeometry(0.1, 0.15);
+                const finMaterial = new THREE.MeshLambertMaterial({ 
+                    color: color,
+                    transparent: true,
+                    opacity: 0.8,
+                    side: THREE.DoubleSide
+                });
+                const fin = new THREE.Mesh(finGeometry, finMaterial);
+                fin.position.z = -0.3;
+                fin.rotation.y = (i / 3) * Math.PI * 2;
+                dartGroup.add(fin);
+            }
+            
+            console.log('Using geometric dart fallback');
         }
         
         // Set initial position and rotation
@@ -345,33 +412,90 @@ class GameRenderer {
     }
 
     getColorAtPosition(position) {
-        // Convert 3D position to dartboard coordinates
-        const x = position.x;
-        const y = position.y;
+        // First check if position is within dartboard radius
+        const dartboardRadius = 3; // Same as the radius used in createColorWheel
+        const distanceFromCenter = Math.sqrt(position.x * position.x + position.y * position.y);
         
-        // Calculate distance from center
-        const distance = Math.sqrt(x * x + y * y);
-        const wheelRadius = 3;
-        
-        if (distance > wheelRadius) {
-            // Outside dartboard
+        if (distanceFromCenter > dartboardRadius) {
+            console.log('Outside dartboard radius - returning null');
             return null;
         }
         
-        if (distance < wheelRadius * 0.05) {
-            // Center white
-            return { r: 255, g: 255, b: 255 };
+        // Use raycasting to determine which mesh was hit
+        const raycaster = new THREE.Raycaster();
+        const rayDirection = new THREE.Vector3(0, 0, -1); // Looking down the Z axis
+        const rayOrigin = new THREE.Vector3(position.x, position.y, position.z + 1); // Start from above the position
+        raycaster.set(rayOrigin, rayDirection);
+        
+        // Get all intersectable objects in the dartboard
+        const intersectable = [];
+        this.dartboard.traverse((child) => {
+            if (child.isMesh && (child.userData.isSector || child.userData.isCenter)) {
+                intersectable.push(child);
+            }
+        });
+        
+        const intersects = raycaster.intersectObjects(intersectable);
+        
+        if (intersects.length > 0) {
+            const hitMesh = intersects[0].object;
+            const userData = hitMesh.userData;
+            
+            if (userData.color) {
+                return userData.color;
+            }
+            
+            // Fallback for sectors without stored color
+            if (userData.isSector) {
+                const material = hitMesh.material;
+                const color = material.color;
+                return {
+                    r: Math.round(color.r * 255),
+                    g: Math.round(color.g * 255),
+                    b: Math.round(color.b * 255)
+                };
+            }
         }
         
-        // Calculate angle and normalize to 0-360
-        const angle = Math.atan2(y, x);
-        const hue = ((angle * 180 / Math.PI) + 360) % 360;
+        // No valid hit detected - returning null
+        return null;
+    }
+
+    getSectorAtPosition(position) {
+        // Use raycasting to determine which sector was hit
+        const raycaster = new THREE.Raycaster();
+        const rayDirection = new THREE.Vector3(0, 0, -1); // Looking down the Z axis
+        raycaster.set(position, rayDirection);
         
-        // Calculate saturation based on distance from center
-        const saturation = Math.min(distance / wheelRadius, 1) * 100;
-        const lightness = 50;
+        // Get all intersectable objects in the dartboard
+        const intersectable = [];
+        this.dartboard.traverse((child) => {
+            if (child.isMesh && (child.userData.isSector || child.userData.isCenter)) {
+                intersectable.push(child);
+            }
+        });
         
-        return hslToRgb(hue, saturation, lightness);
+        const intersects = raycaster.intersectObjects(intersectable);
+        
+        if (intersects.length > 0) {
+            const hitMesh = intersects[0].object;
+            const userData = hitMesh.userData;
+            
+            return {
+                mesh: hitMesh,
+                sectorIndex: userData.sectorIndex,
+                isCenter: userData.isCenter,
+                isSector: userData.isSector,
+                color: userData.color,
+                hue: userData.hue,
+                saturation: userData.saturation,
+                lightness: userData.lightness,
+                startAngle: userData.startAngle,
+                endAngle: userData.endAngle
+            };
+        }
+        
+        return null; // No hit
     }
 
     updateCameraPosition() {
@@ -389,52 +513,193 @@ class GameRenderer {
         );
     }
 
-    setupControls() {
-        // Mouse controls for camera
-        this.canvas.addEventListener('mousedown', (e) => {
-            this.isMouseDown = true;
-            this.mousePosition.x = e.clientX;
-            this.mousePosition.y = e.clientY;
+    setupDragControls() {
+        // Mouse/touch controls for drag-based dart throwing
+        this.canvas.addEventListener('mousedown', (e) => this.handleDragStart(e));
+        this.canvas.addEventListener('mousemove', (e) => this.handleDragMove(e));
+        this.canvas.addEventListener('mouseup', (e) => this.handleDragEnd(e));
+        
+        // Touch controls for mobile
+        this.canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            this.handleDragStart({ clientX: touch.clientX, clientY: touch.clientY });
         });
-
-        this.canvas.addEventListener('mouseup', () => {
-            this.isMouseDown = false;
+        
+        this.canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            this.handleDragMove({ clientX: touch.clientX, clientY: touch.clientY });
         });
-
-        this.canvas.addEventListener('mousemove', (e) => {
-            if (!this.isMouseDown) return;
-            
-            const deltaX = e.clientX - this.mousePosition.x;
-            const deltaY = e.clientY - this.mousePosition.y;
-            
-            // Rotate camera around dartboard
-            const sensitivity = 0.01;
-            this.cameraPosition.x += deltaX * sensitivity;
-            this.cameraPosition.y -= deltaY * sensitivity;
-            
-            // Keep camera at fixed distance
-            const distance = 8;
-            const length = Math.sqrt(
-                this.cameraPosition.x * this.cameraPosition.x + 
-                this.cameraPosition.y * this.cameraPosition.y + 
-                this.cameraPosition.z * this.cameraPosition.z
-            );
-            
-            const scale = distance / length;
-            this.cameraPosition.x *= scale;
-            this.cameraPosition.y *= scale;
-            this.cameraPosition.z *= scale;
-            
-            this.updateCameraPosition();
-            
-            this.mousePosition.x = e.clientX;
-            this.mousePosition.y = e.clientY;
+        
+        this.canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            this.handleDragEnd({});
         });
 
         // Handle window resize
         window.addEventListener('resize', () => {
             this.onWindowResize();
         });
+    }
+
+    handleDragStart(e) {
+        if (!this.canThrow) return;
+        
+        const rect = this.canvas.getBoundingClientRect();
+        this.dragStart.x = (e.clientX - rect.left) / rect.width * 2 - 1;
+        this.dragStart.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        
+        this.isDragging = true;
+        this.createAimingLine();
+        
+        console.log('Drag started at:', this.dragStart);
+    }
+
+    handleDragMove(e) {
+        if (!this.isDragging) return;
+        
+        const rect = this.canvas.getBoundingClientRect();
+        this.dragEnd.x = (e.clientX - rect.left) / rect.width * 2 - 1;
+        this.dragEnd.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        
+        this.updateAimingLine();
+    }
+
+    handleDragEnd(e) {
+        if (!this.isDragging) return;
+        
+        this.isDragging = false;
+        this.removeAimingLine();
+        
+        // Calculate throw vector and power
+        const dragVector = {
+            x: this.dragEnd.x - this.dragStart.x,
+            y: this.dragEnd.y - this.dragStart.y
+        };
+        
+        const dragLength = Math.sqrt(dragVector.x * dragVector.x + dragVector.y * dragVector.y);
+        
+        if (dragLength > 0.1) { // Minimum drag threshold
+            this.performDragThrow(dragVector, dragLength);
+        }
+        
+        console.log('Drag ended, vector:', dragVector, 'length:', dragLength);
+    }
+
+    createAimingLine() {
+        const geometry = new THREE.BufferGeometry();
+        const material = new THREE.LineBasicMaterial({ 
+            color: 0xff0000,
+            transparent: true,
+            opacity: 0.9,
+            linewidth: 5, // Make line thicker
+            depthTest: false, // Render on top of other objects
+            depthWrite: false // Don't write to depth buffer
+        });
+        
+        this.aimingLine = new THREE.Line(geometry, material);
+        this.aimingLine.renderOrder = 999; // Render last (on top)
+        this.scene.add(this.aimingLine);
+    }
+
+    updateAimingLine() {
+        if (!this.aimingLine) return;
+        
+        // Calculate drag vector and power
+        const dragVector = {
+            x: this.dragEnd.x - this.dragStart.x,
+            y: this.dragEnd.y - this.dragStart.y
+        };
+        const dragLength = Math.sqrt(dragVector.x * dragVector.x + dragVector.y * dragVector.y);
+        const power = Math.min(dragLength * 3, 1.0);
+        
+        // Only show aiming line if drag is sufficient
+        if (dragLength < 0.1) {
+            this.aimingLine.geometry.setFromPoints([]);
+            return;
+        }
+        
+        // Calculate throw direction and create trajectory preview
+        const throwAngle = Math.atan2(dragVector.y, -dragVector.x);
+        const velocity = 15 * power;
+        
+        // Create trajectory points for visualization
+        const points = [];
+        const startWorld = this.screenToWorld(this.dragStart.x, this.dragStart.y);
+        
+        // Add trajectory points
+        for (let t = 0; t <= 1; t += 0.1) {
+            const x = startWorld.x + velocity * Math.cos(throwAngle) * t;
+            const y = startWorld.y + velocity * Math.sin(throwAngle) * t - 0.5 * 9.81 * t * t;
+            const z = Math.max(startWorld.z - velocity * 0.3 * t, 0.1); // Ensure line stays above dartboard (z=0)
+            
+            points.push(new THREE.Vector3(x, y, z));
+        }
+        
+        this.aimingLine.geometry.setFromPoints(points);
+        this.aimingLine.geometry.attributes.position.needsUpdate = true;
+        
+        this.aimingLine.material.color.setHex('#000000');
+    }
+
+    removeAimingLine() {
+        if (this.aimingLine) {
+            this.scene.remove(this.aimingLine);
+            this.aimingLine.geometry.dispose();
+            this.aimingLine.material.dispose();
+            this.aimingLine = null;
+        }
+    }
+
+    screenToWorld(x, y) {
+        const vector = new THREE.Vector3(x, y, 0.5);
+        vector.unproject(this.camera);
+        
+        const dir = vector.sub(this.camera.position).normalize();
+        const distance = -this.camera.position.z / dir.z;
+        const worldPos = this.camera.position.clone().add(dir.multiplyScalar(distance));
+        
+        return worldPos;
+    }
+
+    performDragThrow(dragVector, dragLength) {
+        // Calculate throw angle and power from drag
+        const throwAngle = Math.atan2(dragVector.y, -dragVector.x); // Invert X for proper direction
+        const power = Math.min(dragLength * 2, 1.0); // Scale drag length to power (0-1)
+        
+        // Minimum power threshold - dart won't reach dartboard if too weak
+        const minPower = 0.3;
+        if (power < minPower) {
+            console.log('Drag too short, dart won\'t reach dartboard. Power:', power, 'Min required:', minPower);
+            return;
+        }
+        
+        // Calculate initial velocity based on angle and power
+        const baseVelocity = 15; // Base throwing speed
+        const velocity = baseVelocity * power;
+        
+        const throwDirection = {
+            x: Math.cos(throwAngle),
+            y: Math.sin(throwAngle),
+            z: 0
+        };
+        
+        // Create physics-based throw parameters
+        const throwParams = {
+            angle: throwAngle,
+            power: power,
+            direction: throwDirection,
+            velocity: velocity
+        };
+        
+        // Trigger the dart throw through the game manager
+        if (window.gameManager && window.gameManager.canThrow()) {
+            console.log('Executing throwDartWithPhysics - Angle:', throwAngle * 180 / Math.PI, 'degrees, Power:', power);
+            window.gameManager.throwDartWithPhysics(throwParams);
+        } else {
+            console.log('Cannot throw dart - not player turn or game not active');
+        }
     }
 
     onWindowResize() {
@@ -455,9 +720,9 @@ class GameRenderer {
             this.animationId = requestAnimationFrame(render);
             
             // Animate dartboard rotation
-            if (this.dartboard) {
-                this.dartboard.rotation.z += 0.001;
-            }
+            // if (this.dartboard) {
+            //     this.dartboard.rotation.z += 0.001;
+            // }
             
             this.renderer.render(this.scene, this.camera);
         };
@@ -503,11 +768,86 @@ class GameRenderer {
         // Animate dart throw
         return this.animateDartThrow(dart, trajectory, time * 1000)
             .then((finalPosition) => {
+                const sectorInfo = this.getSectorAtPosition(finalPosition);
                 const color = this.getColorAtPosition(finalPosition);
+                
                 return {
                     hitPosition: finalPosition,
                     hitColor: color,
+                    sectorInfo: sectorInfo,
                     trajectory: trajectory
+                };
+            });
+    }
+
+    throwDartWithPhysics(throwParams, playerId) {
+        if (!this.isInitialized) {
+            console.warn('GameRenderer not initialized');
+            return Promise.resolve(null);
+        }
+        
+        const startPosition = new THREE.Vector3(
+            random(-1, 1),     // Small random variation in starting position
+            random(1, 2),      // Throwing height
+            8                  // Distance from dartboard
+        );
+        
+        // Calculate physics-based trajectory
+        const { angle, power, velocity } = throwParams;
+        const gravity = -9.81;
+        const dartboardZ = 0; // Z position of dartboard
+        const distanceToBoard = Math.abs(startPosition.z - dartboardZ);
+        
+        // Calculate time to reach dartboard using physics
+        const velocityZ = -velocity * Math.cos(Math.PI / 6); // Slight downward angle
+        const timeToBoard = distanceToBoard / Math.abs(velocityZ);
+        
+        // Initial velocity components
+        const initialVelocity = {
+            x: velocity * Math.cos(angle) * power,
+            y: velocity * Math.sin(angle) * power,
+            z: velocityZ
+        };
+        
+        // Add some accuracy variation based on power (higher power = less accurate)
+        const accuracyFactor = 1 - (power * 0.3);
+        const trajectory = {
+            velocity: {
+                x: initialVelocity.x + random(-0.5, 0.5) * (1 - accuracyFactor),
+                y: initialVelocity.y + random(-0.5, 0.5) * (1 - accuracyFactor),
+                z: initialVelocity.z
+            },
+            gravity: gravity
+        };
+        
+        // Create dart with player-specific color
+        const dartColor = playerId ? this.getPlayerColor(playerId) : 0xff0000;
+        
+        // Calculate approximate target for dart orientation
+        const approximateTarget = new THREE.Vector3(
+            startPosition.x + trajectory.velocity.x * timeToBoard,
+            startPosition.y + trajectory.velocity.y * timeToBoard + 0.5 * gravity * timeToBoard * timeToBoard,
+            dartboardZ
+        );
+        
+        const dart = this.createDart(startPosition, approximateTarget, dartColor);
+        this.darts.push(dart);
+        
+        // Use physics-based animation duration
+        const animationDuration = timeToBoard * 1000; // Convert to milliseconds
+        
+        // Animate dart throw
+        return this.animateDartThrow(dart, trajectory, animationDuration)
+            .then((finalPosition) => {
+                const sectorInfo = this.getSectorAtPosition(finalPosition);
+                const color = this.getColorAtPosition(finalPosition);
+                
+                return {
+                    hitPosition: finalPosition,
+                    hitColor: color,
+                    sectorInfo: sectorInfo,
+                    trajectory: trajectory,
+                    throwParams: throwParams
                 };
             });
     }

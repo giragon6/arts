@@ -109,6 +109,7 @@ io.on('connection', (socket) => {
                     playerId: socket.id,
                     throwData: result.throwData,
                     newColor: result.newColor,
+                    colorChanged: result.colorChanged,
                     gameState: result.gameState
                 });
 

@@ -70,13 +70,13 @@ class GameManager {
             return { success: false, message: 'Need at least 2 players to start' };
         }
 
-        const targetColor = generateTargetColor();
-        room.startGame(targetColor);
+        // Use the target color that was already generated when the room was created
+        room.startGame(room.targetColor);
 
         return {
             success: true,
             gameState: room.getState(),
-            targetColor
+            targetColor: room.targetColor
         };
     }
 
@@ -102,6 +102,7 @@ class GameManager {
             success: true,
             throwData: result.throwData,
             newColor: result.newColor,
+            colorChanged: result.colorChanged,
             gameState: room.getState(),
             winner: result.winner,
             finalColor: result.finalColor
