@@ -358,6 +358,7 @@ body {
     padding: 1rem;
     border-radius: 10px;
     border: 2px solid #dee2e6;
+    height: fit-content;
 }
 
 .current-turn h3,

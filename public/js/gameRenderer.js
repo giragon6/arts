@@ -82,12 +82,12 @@ class GameRenderer {
 
     async loadDartModel() {
         try {
-                this.loader = new THREE.GLTFLoader(); // Ensure GLTFLoader is used from global THREE namespace
+            this.loader = new THREE.GLTFLoader(); // Ensure GLTFLoader is used from global THREE namespace
             console.log('Loading dart.glb model...');
             
             const gltf = await new Promise((resolve, reject) => {
                 this.loader.load(
-                    './assets/Dart.glb',
+                    './assets/Dart2.glb',
                     resolve,
                     (progress) => {
                             if (progress && progress.total) {

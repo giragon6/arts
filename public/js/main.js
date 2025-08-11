@@ -46,7 +46,16 @@ function randomizeUIBackgrounds() {
             element.style.backgroundColor = rgba;
         });
     });
-    
+
+    const playerNames = document.querySelectorAll('.player-name')
+    console.log(playerNames)
+     playerNames.forEach(playerName => {
+        // Generate a vibrant random color
+        const color = generateVibrantColor();
+        const rgba = `rgba(${color.r}, ${color.g}, ${color.b}, 0.95)`;
+        playerName.style.color = rgba;
+    });
+        
     console.log('UI backgrounds randomized');
 }
 
